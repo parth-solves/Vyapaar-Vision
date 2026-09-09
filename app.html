@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>App — Vyapar Vision</title>
+<link rel="icon" type="image/png" sizes="64x64" href="favicon.png">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+
+<!-- PDF reading — pdf.js 4.x only ships as an ES module, so it's loaded
+     as one here and attached to window.pdfjsLib for the regular scripts below -->
+<script type="module">
+  import * as pdfjsLib from 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.4.168/pdf.min.mjs';
+  pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.4.168/pdf.worker.min.mjs';
+  window.pdfjsLib = pdfjsLib;
+</script>
+<!-- OCR fallback for scanned/image-only PDFs -->
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.0/dist/tesseract.min.js"></script>
+<!-- QR/barcode decoding (cross-checks order ID against the label's code) -->
+<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
+<!-- Charts -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<!-- Exports -->
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+</head>
+<body>
+
+<nav class="nav">
+  <div class="nav-inner">
+    <a href="index.html" class="logo"><span class="logo-mark"></span>Vyapar Vision</a>
+    <ul class="nav-links">
+      <li><a href="index.html">Home</a></li>
+      <li><a href="index.html#how-it-works">How it works</a></li>
+    </ul>
+    <div class="nav-cta">
+      <button class="theme-toggle" id="themeToggle" title="Toggle dark / light mode"><span id="themeIcon">🌙</span></button>
+    </div>
+  </div>
+</nav>
+
+<main class="app-main">
+
+  <div class="notice">
+    <b>100% on your device.</b> There's no backend and no database — every PDF is read directly in this browser tab and nothing is ever uploaded anywhere. Gender is <b>estimated from the customer's first name</b> (labels don't print gender).
+  </div>
+
+  <section class="upload-panel">
+    <div class="upload-panel-head">
+      <div>
+        <h2>Upload your shipping label PDFs</h2>
+        <p>Works with Amazon, Flipkart, Meesho, Myntra, and Ajio — the marketplace is detected automatically per file.</p>
+      </div>
+      <button class="btn btn-ghost btn-sm" id="demoBtn">Try with sample data</button>
+    </div>
+
+    <div class="drop-zone" id="dropZone">
+      <svg width="30" height="30" viewBox="0 0 24 24" fill="none" style="margin:0 auto"><path d="M12 16V4M12 4l-4 4M12 4l4 4" stroke="#8A8172" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2" stroke="#8A8172" stroke-width="1.6" stroke-linecap="round"/></svg>
+      <h4>Drag PDF labels here, or click to browse</h4>
+      <p>You can select many files at once — 1,000 labels upload just as easily as one.</p>
+      <input type="file" id="fileInput" accept="application/pdf" multiple hidden>
+    </div>
+
+    <div class="mk-row">
+      <span class="mk-pill"><i class="dot" style="background:#C97A3D"></i>Amazon.in</span>
+      <span class="mk-pill"><i class="dot" style="background:#3E6E8C"></i>Flipkart</span>
+      <span class="mk-pill"><i class="dot" style="background:#8C5F94"></i>Meesho</span>
+      <span class="mk-pill"><i class="dot" style="background:#A8524A"></i>Myntra</span>
+      <span class="mk-pill"><i class="dot" style="background:#4F7A78"></i>Ajio</span>
+    </div>
+
+    <div class="queue-list" id="queueList"></div>
+  </section>
+
+  <div class="empty-note" id="emptyNotice">Upload a few label PDFs, or click "Try with sample data" above, to see the dashboard.</div>
+
+  <div id="dataSections" style="display:none;">
+
+    <div class="export-bar">
+      <button class="btn btn-ghost btn-sm" id="exportCsv">Export CSV</button>
+      <button class="btn btn-ghost btn-sm" id="exportJson">Export JSON</button>
+      <button class="btn btn-ghost btn-sm" id="exportXlsx">Export Excel</button>
+      <button class="btn btn-ghost btn-sm" id="exportJpg">Export JPG</button>
+      <button class="btn btn-ghost btn-sm" id="exportPdf">Export PDF</button>
+    </div>
+
+    <div class="stat-row" id="statRow"></div>
+
+    <div class="chart-grid thirds">
+      <div class="chart-card">
+        <div class="chart-card-head"><h3>Marketplace split</h3><span>ORDERS</span></div>
+        <canvas id="marketplaceChart"></canvas>
+      </div>
+      <div class="chart-card">
+        <div class="chart-card-head"><h3>Gender (estimated)</h3><span>AUDIENCE</span></div>
+        <canvas id="genderChart"></canvas>
+        <div class="gender-summary" id="genderSummary" aria-live="polite"></div>
+      </div>
+      <div class="chart-card">
+        <div class="chart-card-head"><h3>Payment type</h3><span>COD vs PREPAID</span></div>
+        <canvas id="paymentChart"></canvas>
+      </div>
+    </div>
+
+    <div class="chart-grid">
+      <div class="chart-card">
+        <div class="chart-card-head"><h3>Orders by state</h3><span>REGIONAL — WHERE TO ADVERTISE</span></div>
+        <canvas id="regionChart"></canvas>
+      </div>
+      <div class="chart-card">
+        <div class="chart-card-head"><h3>Orders by city</h3><span>CITY-LEVEL</span></div>
+        <canvas id="cityChart"></canvas>
+      </div>
+    </div>
+
+    <div class="chart-grid">
+      <div class="chart-card">
+        <div class="chart-card-head"><h3>Orders by day</h3><label class="chart-control">Metric
+          <select id="dailyChartMetric" aria-label="Daily chart metric">
+            <option value="orders">Orders</option>
+            <option value="sales">Sales</option>
+          </select>
+        </label></div>
+        <canvas id="dailyChart"></canvas>
+      </div>
+    </div>
+
+    <div class="chart-grid">
+      <div class="chart-card">
+        <div class="chart-card-head"><h3>Products sold</h3><span>QUANTITY</span></div>
+        <canvas id="productChart"></canvas>
+      </div>
+      <div class="chart-card">
+        <div class="chart-card-head"><h3>Category demand by region</h3><span>TOP REGION</span></div>
+        <canvas id="categoryRegionChart"></canvas>
+      </div>
+    </div>
+
+    <div class="table-card">
+      <div class="chart-card-head"><h3>Parsed orders</h3><span id="tableCount"></span></div>
+      <table>
+        <thead><tr><th>Marketplace</th><th>Order ID</th><th>Amount</th><th>Payment</th><th>State</th><th>City</th><th>Product</th><th>Qty</th><th>Category</th><th>Gender*</th><th>Date</th></tr></thead>
+        <tbody id="ordersTableBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+</main>
+
+<footer>Vyapar Vision · *Gender is estimated from customer name, not printed on labels</footer>
+
+<script src="js/theme.js"></script>
+<script src="js/parser.js?v=6"></script>
+<script src="js/app.js?v=6"></script>
+</body>
+</html>
